@@ -9,6 +9,16 @@ const KEY = 'gym_state_v1'
 export const DEF = {
   unit: 'kg', restSec: 90, sound: true, keepAwake: true, lang: 'en',
   theme: 'dark', accent: 'lime', body: 'male', targetW: null,
+  // Body-weight trend smoothing preset (lib/weight-trend.js). Overlaid on DEF like every other
+  // setting, so an older profile with no value simply gets the balanced default.
+  trendSmoothing: 'balanced',
+  // Barbell weight used by the plate calculator on the workout screen. null → the standard bar
+  // for the current unit (20 kg / 45 lb), so an older profile needs no migration.
+  barWeight: null,
+  // Daily calorie intake [{ d:'YYYY-MM-DD', kcal }] and the target weekly rate (kg/week, 0 =
+  // maintain) that drives the suggested intake. Both empty/zero by default, so a profile that
+  // never logs food sees nothing new.
+  calories: [], goalRateKg: 0,
   bodyweight: [], routines: [], week: {}, dayPlan: {},
   exWeights: {}, workouts: [], active: null, customEx: [], gifSize: 'full',
   // effort: which per-set effort scale is logged — 'none' | 'rir' | 'rpe'. null, not 'none', so

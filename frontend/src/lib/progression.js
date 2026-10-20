@@ -18,12 +18,13 @@
 
 import { modeOf } from './history.js'
 import { EXIDX } from './exercises.js'
+import { avgRir } from './effort.js'
 
-export const POLICIES = ['off', 'linear', 'greyskull', 'double', 'time']
+export const POLICIES = ['off', 'linear', 'greyskull', 'double', 'rir', 'time']
 
 // Which policies can sensibly drive which logging mode.
 export const POLICIES_FOR = {
-  reps: ['off', 'linear', 'greyskull', 'double'],
+  reps: ['off', 'linear', 'greyskull', 'double', 'rir'],
   time: ['off', 'time'],
   cardio: ['off']
 }
@@ -33,6 +34,7 @@ export const POLICY_NAME = {
   linear: 'Linear progression',
   greyskull: 'Greyskull LP',
   double: 'Double progression',
+  rir: 'Effort target (RIR)',
   time: 'Add time'
 }
 export const POLICY_DESC = {
@@ -40,8 +42,15 @@ export const POLICY_DESC = {
   linear: 'Hit every rep in every set and the weight goes up. Repeated misses trigger a deload.',
   greyskull: 'Two straight sets plus a final set taken to failure. Beat the target on that set and the weight goes up — double if you double the reps. One failure resets 10 %.',
   double: 'Work up through a rep range at the same weight. Reach the top of the range in every set and the weight goes up, reps back to the bottom.',
+  rir: 'Autoregulated: rate how many reps you left in reserve and the weight drifts to keep every session at your target effort.',
   time: 'Hold every set for the full duration and the target goes up.'
 }
+
+// Effort-target (RIR) policy knobs.
+export const DEFAULT_TARGET_RIR = 2     // aim to finish sets with ~2 reps in reserve
+const RIR_PER_PCT = 0.033               // ≈3.3% of load per rep in reserve (1 rep ≈ 3% of 1RM)
+const RIR_TOLERANCE = 0.5               // within half an RIR point counts as on target
+const RIR_MAX_STEPS = 4                 // cap one session's change, so a bad rating can't lurch
 
 // Sessions of repeated misses before a deload. Greyskull resets on the first failure by
 // design; the general linear policy gives you two more cracks at it first.
@@ -119,6 +128,7 @@ export function readSession(entry, fallback) {
     weight: Math.max(0, ...sets.filter(s => s.done).map(s => s.w || 0)),
     low: reps.length ? Math.min(...reps) : 0,
     amrap: reps.length ? reps[reps.length - 1] : 0,       // Greyskull's final set
+    rir: avgRir(sets.filter(s => s.done)),                 // null when nothing was rated
     ok: goal > 0 && enough && reps.length > 0 && reps.every(r => r >= goal)
   }
 }
@@ -188,6 +198,32 @@ export function nextPrescription(S, cfg, routine) {
     if (last.ok && goal > 0) return { policy, kind: 'up', weight: 0, reps: goal + 1, why: ['Bodyweight — every rep last time, so go for {0} this time.', goal + 1] }
     return { policy, kind: 'hold', weight: 0, reps: goal || undefined, why: ['Bodyweight — same target again until every set is clean.'] }
   }
+  if (policy === 'rir') {
+    const targetRir = cfg.targetRir >= 0 ? cfg.targetRir : DEFAULT_TARGET_RIR
+    const reps = last.goal || cfg.reps || undefined
+    if (last.rir == null) {
+      return { policy, kind: 'hold', weight: w, reps, why: ['Rate how many reps you had left (RIR) and the weight will tune itself to a {0}-RIR target.', targetRir] }
+    }
+    // Positive = you left more in the tank than the target, so the set was too light.
+    const diff = last.rir - targetRir
+    if (Math.abs(diff) <= RIR_TOLERANCE) {
+      return { policy, kind: 'hold', weight: w, reps, why: ['Last session landed near {0} RIR — right on target, so hold {1} {2}.', targetRir, w, unit] }
+    }
+    // Move load proportionally: each rep-in-reserve off target ≈ RIR_PER_PCT of the weight,
+    // capped so one off reading can only nudge, never lurch.
+    const rawDelta = w * diff * RIR_PER_PCT
+    const capped = Math.max(-RIR_MAX_STEPS * inc, Math.min(RIR_MAX_STEPS * inc, rawDelta))
+    const nw = Math.max(inc, snap(w + capped, inc))
+    if (nw === w) return { policy, kind: 'hold', weight: w, reps, why: ['Last session was close to {0} RIR — holding {1} {2}.', targetRir, w, unit] }
+    const up = nw > w
+    return {
+      policy, kind: up ? 'up' : 'deload', weight: nw, reps,
+      why: up
+        ? ['Last session left about {0} RIR — more in the tank than the {1} target, so up to {2} {3}.', round1(last.rir), targetRir, nw, unit]
+        : ['Last session left about {0} RIR — harder than the {1} target, so down to {2} {3}.', round1(last.rir), targetRir, nw, unit]
+    }
+  }
+
   if (policy === 'double') {
     const top = cfg.reps || last.goal || 10
     const bottom = Math.min(cfg.repsMin || Math.max(1, top - 2), top)

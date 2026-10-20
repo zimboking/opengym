@@ -10,6 +10,7 @@ import { t } from '../lib/i18n.js'
 import { api } from '../lib/api.js'
 import Media from '../components/Media.jsx'
 import { startFlow, exercisePicker, exConfigSheet, exerciseDetailSheet, topWeightSheet, finishWorkout, workoutCompleteSheet, confirmSheet } from '../sheets.jsx'
+import { platesFor } from '../lib/plates.js'
 import Icon from '../components/Icon.jsx'
 import { Button, Check, NumberField } from '../components/ui.jsx'
 import { nextPrescription, applyPrescription } from '../lib/progression.js'
@@ -98,6 +99,15 @@ function ExerciseBlock({ entryIdx, compact, onToggle, onField, onAddSet, onRemov
       <button aria-label="Increase" onClick={() => bump(s, i, col, 1)}><Icon name="plus" /></button>
     </div>
   )
+  // Per-side plate breakdown for a barbell set. Only shown for barbell lifts above the bar;
+  // "25 · 10" means hang those on each end. A target the plates can't hit exactly gets a ~.
+  const isBarbell = ex.eq === 'barbell'
+  const plateHint = w => {
+    if (!isBarbell || !(w > 0)) return null
+    const r = platesFor(w, { unit: S.unit, bar: S.barWeight })
+    if (!r || !r.perSide.length) return null
+    return (r.leftover > 0 ? '~ ' : '') + r.perSide.map(fmtNum).join(' · ') + t(' / side')
+  }
   return <>
     <Media ex={ex} key={entry.id} compact={compact} minimizable />
     <div className="row between" style={{ marginBottom: 6 }}>
@@ -128,6 +138,7 @@ function ExerciseBlock({ entryIdx, compact, onToggle, onField, onAddSet, onRemov
         {timed && <button className="setgo" aria-label={t('Start set')} disabled={s.done || !!working}
           onClick={() => onStartTimed(i)}><Icon name="play" /></button>}
         <Check checked={s.done} onChange={() => onToggle(i)} />
+        {!cardio && plateHint(s.w) && <div className="platehint small dim">{plateHint(s.w)}</div>}
       </div>)}
       <div style={{ height: 8 }} />
       <div className="row">

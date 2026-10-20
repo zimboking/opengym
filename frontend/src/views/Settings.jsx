@@ -12,6 +12,7 @@ import { DEMO, REPO } from '../lib/demo.js'
 import { MOBILE, shareExport, syncReminder } from '../lib/mobile.js'
 import { loadStarterPlan, confirmSheet, importFromApp } from '../sheets.jsx'
 import { coachAvailable, hasConsent } from '../lib/coach.js'
+import { SMOOTHING } from '../lib/weight-trend.js'
 import { forgetCoach } from '../lib/coach-api.js'
 import Icon from '../components/Icon.jsx'
 import { Section, Row, SelectRow, Switch, Segmented, Button, TextField } from '../components/ui.jsx'
@@ -116,6 +117,12 @@ export default function Settings() {
           options={[{ value: 'kg', label: 'kg' }, { value: 'lb', label: 'lb' }]}
           value={S.unit} onChange={v => update(s => { s.unit = v })} />
       </Row>
+      <SelectRow icon="chart" iconTint="var(--purple)" title={t('Weight trend smoothing')}
+        value={S.trendSmoothing || 'balanced'} onChange={v => update(s => { s.trendSmoothing = v })}
+        options={Object.entries(SMOOTHING).map(([k, p]) => ({ value: k, label: t(p.label), subtitle: t(p.desc) }))} />
+      <SelectRow icon="dumbbell" iconTint="var(--orange)" title={t('Barbell weight')}
+        value={S.barWeight ?? (S.unit === 'lb' ? 45 : 20)} onChange={v => update(s => { s.barWeight = v })}
+        options={(S.unit === 'lb' ? [35, 45] : [10, 15, 20]).map(v => ({ value: v, label: v + ' ' + S.unit }))} />
     </Section>
 
     {/* ---------- during a workout ---------- */}
