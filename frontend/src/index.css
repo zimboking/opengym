@@ -551,7 +551,9 @@ h4.sec{
 .sethead .r-sp{flex:1;text-align:center}
 .sethead .eff-sp{text-align:center}
 .sethead .ck-sp{width:30px;flex:none}
-.setrow{display:flex;align-items:center;gap:8px;padding:7px 0;position:relative}
+.setrow{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:7px 0;position:relative}
+/* plate calculator breakdown: its own line under the set, aligned past the set-number column */
+.setrow .platehint{flex-basis:100%;margin:-2px 0 0 32px;letter-spacing:.01em;font-variant-numeric:tabular-nums}
 .setrow+.setrow::before{
   content:'';position:absolute;left:32px;right:0;top:0;height:var(--hair);background:var(--sep);
 }
@@ -713,6 +715,9 @@ h4.sec{
   font-variant-numeric:tabular-nums;line-height:1;
 }
 .bw-read .u{font-size:19px;color:var(--label-2);font-weight:400;letter-spacing:-.01em}
+/* calorie entry: a bare NumberField styled to read like the big bw-read display number */
+.bw-read .calin{width:5ch;background:none;border:none;outline:none;color:inherit;font:inherit;text-align:center;padding:0;appearance:textfield}
+.bw-read .calin::-webkit-inner-spin-button{display:none}
 .bwin{display:flex;align-items:baseline;justify-content:center;gap:7px;margin:16px 0}
 .bwin input{
   width:150px;background:none;border:none;outline:none;text-align:right;

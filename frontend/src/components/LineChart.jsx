@@ -12,7 +12,10 @@ const W = 340   // viewBox width; the svg stretches to its container, height com
 // opts: { h, unit, color, axes, goal, invert }
 //   invert flips the y axis, for a scale that counts down as it gets harder (RIR). Without it
 //   a curve of reps-in-reserve reads upside down, with the hardest sets at the floor.
-export default function LineChart({ points, h = 150, unit = '', color = 'var(--acc)', axes = true, goal = null, invert = false }) {
+// sub: an optional second series ([{ t, y }]) drawn faintly behind the main line — used for
+//   the raw weigh-ins sitting under the smoothed weight trend, so the scatter the trend is
+//   ironing out stays visible.
+export default function LineChart({ points, sub = null, h = 150, unit = '', color = 'var(--acc)', axes = true, goal = null, invert = false }) {
   const svgRef = useRef(null)
   const wrapRef = useRef(null)
   const tipRef = useRef(null)
@@ -42,7 +45,8 @@ export default function LineChart({ points, h = 150, unit = '', color = 'var(--a
   const P = { l: axes ? 34 : 8, r: 12, t: 10, b: axes ? 22 : 8 }
   const single = points.length === 1
   const pts = single ? [points[0], points[0]] : points
-  const ys = pts.map(p => p.y)
+  const subPts = sub && sub.length ? sub : null
+  const ys = pts.map(p => p.y).concat(subPts ? subPts.map(p => p.y) : [])
   let ymin = Math.min(...ys), ymax = Math.max(...ys)
   if (goal != null && isFinite(goal)) { ymin = Math.min(ymin, goal); ymax = Math.max(ymax, goal) }
   if (ymin === ymax) { ymin -= 1; ymax += 1 }
@@ -121,6 +125,9 @@ export default function LineChart({ points, h = 150, unit = '', color = 'var(--a
           <text x={W - P.r - 2} y={Y(goal) - 5} textAnchor="end" fontSize="9.5" fontWeight="700" fill="var(--yellow)">{fmtNum(goal)}</text>
         </>}
         <polygon points={`${P.l},${H - P.b} ${poly} ${X(last.t).toFixed(1)},${H - P.b}`} fill={`url(#${gid})`} />
+        {subPts && <polyline points={subPts.map(p => X(p.t).toFixed(1) + ',' + Y(p.y).toFixed(1)).join(' ')}
+          fill="none" stroke="var(--label-3)" strokeWidth="1" strokeOpacity="0.45" strokeLinejoin="round" />}
+        {subPts && subPts.map((p, i) => <circle key={'s' + i} cx={X(p.t)} cy={Y(p.y)} r="1.6" fill="var(--label-3)" opacity="0.5" />)}
         <polyline points={poly} fill="none" stroke={color} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
         {marked && pts.map((p, i) => (p.m == null ? null :
           <circle key={'m' + i} cx={X(p.t)} cy={Y(p.y)} r={2.4 + p.m * 3} fill={color} opacity={0.3 + p.m * 0.7} />))}

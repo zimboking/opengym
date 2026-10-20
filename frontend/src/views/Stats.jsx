@@ -5,13 +5,15 @@ import { EXIDX } from '../lib/exercises.js'
 import { lastBW, streakWeeks, setLabel, modeOf, effortOf } from '../lib/history.js'
 import { fmtNum, fmtDate, fmtVol, todayISO, weekKey } from '../lib/format.js'
 import { t } from '../lib/i18n.js'
-import { bwSheet, goalSheet, calendarSheet, workoutDetailSheet, WorkoutRow, bwDeltaColor } from '../sheets.jsx'
+import { bwSheet, goalSheet, calendarSheet, workoutDetailSheet, WorkoutRow, bwDeltaColor, calorieSheet } from '../sheets.jsx'
 import LineChart from '../components/LineChart.jsx'
 import Heatmap from '../components/Heatmap.jsx'
 import Icon from '../components/Icon.jsx'
 import BodyMap, { BodyMapLegend } from '../components/BodyMap.jsx'
 import { loadOfWorkouts, rankOf, MUSCLE_NAME } from '../lib/muscles.js'
 import { e1rmSeries, best1RM } from '../lib/onerm.js'
+import { weightTrend, daysToGoal } from '../lib/weight-trend.js'
+import { expenditure, calorieTarget } from '../lib/energy.js'
 import {
   hasEffort, displayScale, scaleName, toScale, avgRir, effortSummary, effortWeeks,
   effortHistogram, isHardSet, HARD_RIR
@@ -133,6 +135,7 @@ function EffortCard({ S }) {
 export default function Stats() {
   const nav = useNavigate()
   const S = useStore(s => s.S)
+  const update = useStore(s => s.update)
   const [range, setRange] = useState(90)
   const [exId, setExId] = useState(null)
   const [exMetric, setExMetric] = useState('top')
@@ -145,6 +148,19 @@ export default function Stats() {
     .map(b => ({ t: b.t || new Date(b.d).getTime(), y: b.w, d: b.d }))
   const bw30 = S.bodyweight.filter(b => (b.t || new Date(b.d).getTime()) > now - 30 * 86400000)
   const bwDelta30 = bw30.length > 1 ? bw30[bw30.length - 1].w - bw30[0].w : null
+  // Smoothed weight trend over the whole history (so the filter has full context), then
+  // sliced to the chosen range for display. Raw weigh-ins ride underneath as faint dots.
+  const trend = weightTrend(S.bodyweight, { smoothing: S.trendSmoothing })
+  const trendPts = trend ? trend.points.filter(p => range === 0 || p.t > now - range * 86400000)
+    .map(p => ({ t: p.t, y: p.trend, d: p.d })) : []
+  const etaDays = trend && S.targetW ? daysToGoal(trend.latest.trend, trend.latest.weeklyRate, S.targetW) : null
+  // Expenditure needs both an intake log and a weight trend to sit against.
+  const tdee = trend ? expenditure(S.calories, trend.points) : null
+  const goalRate = S.goalRateKg || 0
+  const suggested = tdee ? calorieTarget(tdee.kcal, goalRate) : null
+  const GOAL_RATES = S.unit === 'lb'
+    ? [{ value: -0.45, label: '−1 lb/wk' }, { value: -0.23, label: '−½ lb/wk' }, { value: 0, label: t('Maintain') }, { value: 0.23, label: '+½ lb/wk' }]
+    : [{ value: -0.5, label: '−0.5 kg/wk' }, { value: -0.25, label: '−0.25' }, { value: 0, label: t('Maintain') }, { value: 0.25, label: '+0.25' }]
   const monthW = S.workouts.filter(w => w.d.slice(0, 7) === todayISO().slice(0, 7)).length
 
   const exHist = [...new Set(S.workouts.flatMap(w => w.entries.map(e => e.id)))].filter(id => EXIDX[id]).sort((a, b) => EXIDX[a].n < EXIDX[b].n ? -1 : 1)
@@ -224,7 +240,39 @@ export default function Stats() {
         </div>
         <Segmented className="seg-range" value={range} onChange={setRange}
           options={[{ value: 30, label: '1M' }, { value: 90, label: '3M' }, { value: 365, label: '1Y' }, { value: 0, label: t('All') }]} />
-        <div className="chart"><LineChart points={bwPts} h={160} unit={S.unit} goal={S.targetW} /></div>
+        {trend && <div className="row between" style={{ margin: '6px 2px 2px' }}>
+          <div className="small dim">{t('Trend')} · <b style={{ color: 'var(--text)' }}>{fmtNum(trend.latest.trend)} {S.unit}</b></div>
+          <div className="small dim">
+            {trend.latest.weeklyRate === 0 ? t('holding') :
+              <span style={{ color: bwDeltaColor(trend.latest.weeklyRate, trend.latest.trend) }}>
+                {(trend.latest.weeklyRate > 0 ? '+' : '') + fmtNum(trend.latest.weeklyRate)} {S.unit}{t('/wk')}</span>}
+            {etaDays != null && etaDays > 0 && <> · {t('goal in ~{0}w', Math.round(etaDays / 7))}</>}
+            {etaDays === 0 && <> · {t('goal reached')}</>}
+          </div>
+        </div>}
+        <div className="chart"><LineChart points={trendPts.length ? trendPts : bwPts} sub={trendPts.length ? bwPts : null} h={160} unit={S.unit} goal={S.targetW} /></div>
+      </div>
+
+      <div className="card">
+        <div className="row between" style={{ marginBottom: 8 }}>
+          <h2 style={{ margin: 0 }}>{t('Energy')}</h2>
+          <Button size="sm" icon="plus" onClick={() => calorieSheet()}>{t('Log calories')}</Button>
+        </div>
+        {tdee ? <>
+          <div className="tiles" style={{ marginBottom: 10 }}>
+            <div className="tile"><div className="l"><Icon name="flame" />{t('Expenditure')}</div><div className="v">{fmtNum(tdee.kcal)}<span className="small dim"> kcal</span></div></div>
+            <div className="tile"><div className="l"><Icon name="target" />{t('Suggested intake')}</div><div className="v">{fmtNum(suggested)}<span className="small dim"> kcal</span></div></div>
+          </div>
+          <div className="small dim" style={{ marginBottom: 8 }}>
+            {t('From {0} logged days: you ate {1} kcal/day and your trend moved {2} {3}/wk. Expenditure is intake minus that change.',
+              tdee.daysPresent, fmtNum(tdee.meanIntake), (tdee.weeklyRateKg > 0 ? '+' : '') + fmtNum(tdee.weeklyRateKg), S.unit)}
+          </div>
+          <div className="small dim" style={{ marginBottom: 6 }}>{t('Goal')}</div>
+          <Segmented value={goalRate} onChange={v => update(s => { s.goalRateKg = v })}
+            options={GOAL_RATES} />
+        </> : <div className="muted small">
+          {t('Log a few days of calories — with your weigh-ins, OpenGym estimates what you actually burn and what to eat for your goal. Needs about a week of entries.')}
+        </div>}
       </div>
 
       <div className="card">

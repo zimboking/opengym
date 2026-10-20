@@ -11,14 +11,14 @@ import { starterRoutines } from './lib/starter.js'
 import Media, { Thumb } from './components/Media.jsx'
 import Stepper from './components/Stepper.jsx'
 import Icon from './components/Icon.jsx'
-import { Button, Slider, Switch, Segmented, SelectRow, TextArea } from './components/ui.jsx'
+import { Button, Slider, Switch, Segmented, SelectRow, TextArea, NumberField } from './components/ui.jsx'
 import { glyphOf, GLYPH_GROUPS, DEFAULT_GLYPH } from './lib/glyphs.js'
 import BodyMap from './components/BodyMap.jsx'
 import { loadOfWorkouts } from './lib/muscles.js'
 import { parseImport, mergeImport } from './lib/import-csv.js'
 import { buildPlanBundle, parsePlan, mergePlan, printPlan } from './lib/plan-share.js'
 import { estimate1RM, best1RM, is1RMRecord, REP_CAP } from './lib/onerm.js'
-import { nextPrescription, applyPrescription, policyFor, defaultIncrement, POLICIES_FOR, POLICY_NAME, POLICY_DESC } from './lib/progression.js'
+import { nextPrescription, applyPrescription, policyFor, defaultIncrement, POLICIES_FOR, POLICY_NAME, POLICY_DESC, DEFAULT_TARGET_RIR } from './lib/progression.js'
 import { MOBILE, shareExport } from './lib/mobile.js'
 
 const S = () => useStore.getState().S
@@ -129,6 +129,48 @@ export function bwSheet(opts = {}) {
   const h = ui().openSheet(close => <BwSheet {...opts} close={close} />, { locked: !!opts.required })
   return h
 }
+
+/* ============================ calorie intake ============================ */
+function CalorieSheet({ close }) {
+  const st = useStore(s => s.S)
+  const todayKcal = (st.calories || []).find(c => c.d === todayISO())
+  const [v, setV] = useState(todayKcal ? todayKcal.kcal : null)
+  const save = () => {
+    const n = Math.round(v || 0)
+    if (!(n > 0)) { toast(t('Enter a valid number of calories')); return }
+    update(s => {
+      const iso = todayISO()
+      const ex = s.calories.find(c => c.d === iso)
+      if (ex) ex.kcal = n; else s.calories.push({ d: iso, kcal: n })
+      s.calories.sort((a, b) => (a.d < b.d ? -1 : 1))
+    })
+    close(); toast(t('Calories saved'))
+  }
+  const recent = [...(st.calories || [])].reverse().slice(0, 3)
+  const delEntry = d => update(s => { s.calories = s.calories.filter(c => c.d !== d) })
+  return <>
+    <h3>{t('Log calories')}</h3>
+    <div className="muted small">{t('Today')}, {fmtDate(todayISO(), true)}</div>
+    <div className="bwstep" style={{ marginTop: 10 }}>
+      <button className="bw-pm" onClick={() => setV(Math.max(0, (v || 0) - 50))} aria-label="minus 50"><Icon name="minus" /></button>
+      <div className="bw-read"><NumberField className="calin" value={v ?? ''} decimal={false} nullable onChange={setV} /><span className="u"> kcal</span></div>
+      <button className="bw-pm" onClick={() => setV((v || 0) + 50)} aria-label="plus 50"><Icon name="plus" /></button>
+    </div>
+    <div style={{ height: 14 }} />
+    <Button variant="primary" onClick={save}>{t('Save')}</Button>
+    {recent.length > 0 && <>
+      <h4 className="sec">{t('Recent days')}</h4>
+      <div className="list" style={{ gap: 0 }}>
+        {recent.map(c => <div key={c.d} className="row between" style={{ padding: '9px 2px', borderBottom: '1px solid var(--sep)' }}>
+          <span className="small muted">{fmtDate(c.d, true)}</span>
+          <span className="row" style={{ gap: 12 }}><b>{fmtNum(c.kcal)} kcal</b>
+            <button className="iconbtn" style={{ width: 32, height: 30, borderRadius: 8, fontSize: 15, color: 'var(--red)' }} onClick={() => delEntry(c.d)} aria-label="delete"><Icon name="trash" /></button></span>
+        </div>)}
+      </div>
+    </>}
+  </>
+}
+export const calorieSheet = () => ui().openSheet(close => <CalorieSheet close={close} />)
 
 /* ============================ import from another app ============================ */
 // Shows what a parsed export would actually do before anything is written. An import is
@@ -478,6 +520,8 @@ function ProgressionFields({ ex, mode, c, setC, routine, unit }) {
         step={mode === 'time' ? 5 : 1.25} decimal={mode !== 'time'} onChange={v => setC(x => ({ ...x, inc: v }))} />
       {active === 'double' && <Stepper label={t('Reps from')} value={c.repsMin || Math.max(1, (c.reps || 10) - 2)}
         step={1} decimal={false} onChange={v => setC(x => ({ ...x, repsMin: v }))} />}
+      {active === 'rir' && <Stepper label={t('Target RIR')} value={c.targetRir ?? DEFAULT_TARGET_RIR}
+        step={1} decimal={false} min={0} onChange={v => setC(x => ({ ...x, targetRir: v }))} />}
     </div>}
   </>
 }
@@ -504,7 +548,9 @@ function ExConfig({ ex, existing, onSave, onDelete, close, routine }) {
     else {
       const reps = Math.max(1, Math.round(c.reps) || 10)
       const out = { sets, mode: 'reps', reps, weight: Math.max(0, c.weight || 0), ...prog }
-      if (policyFor({ ...c, id: ex.id }, routine, 'reps') === 'double') out.repsMin = Math.min(reps, Math.max(1, Math.round(c.repsMin) || Math.max(1, reps - 2)))
+      const pol = policyFor({ ...c, id: ex.id }, routine, 'reps')
+      if (pol === 'double') out.repsMin = Math.min(reps, Math.max(1, Math.round(c.repsMin) || Math.max(1, reps - 2)))
+      if (pol === 'rir' && c.targetRir != null) out.targetRir = Math.max(0, Math.round(c.targetRir))
       onSave(out)
     }
   }
